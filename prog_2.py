@@ -1,50 +1,79 @@
+!pip install orange3 scikit-learn pandas
+
 import pandas as pd
+import numpy as np
 from sklearn.datasets import load_iris
-from sklearn.model_selection import train_test_split
-from sklearn.metrics import classification_report
-from sklearn.tree import DecisionTreeClassifier
-from sklearn import tree
+import Orange
+from Orange.classification.rules import CN2Learner, CN2SDUnorderedLearner
 
-# Load data
 iris = load_iris()
-X, y = iris.data, iris.target
-feature_names = iris.feature_names
-target_names = iris.target_names
+X = iris.data
+y = iris.target
 
-# Split data
-X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
 
-# RIPPER-like model (uses entropy)
-ripper_model = DecisionTreeClassifier(criterion='entropy', max_depth=3, random_state=42)
-ripper_model.fit(X_train, y_train)
+df = pd.DataFrame(X, columns=iris.feature_names)
+df['species'] = y
+df['species'] = df['species'].map({0: 'setosa', 1: 'versicolor', 2: 'virginica'})
 
-# Show rules
-print("RIPPER-like Rules:")
-print(tree.export_text(ripper_model, feature_names=feature_names))
+print("Dataset loaded successfully!")
+print("Shape:", df.shape)
+df.head()
 
-# FOIL-like model (uses gini)
-foil_model = DecisionTreeClassifier(criterion='gini', max_depth=3, random_state=42)
-foil_model.fit(X_train, y_train)
 
-# Show rules
-print("FOIL-like Rules:")
-print(tree.export_text(foil_model, feature_names=feature_names))
+def load_dataset(df):
+    attributes = []
+    for col in df.columns[:-1]:  # All columns except the target
+        if df[col].dtype == 'object':
+            # Use the unique values as categories
+            values = list(map(str, df[col].unique()))
+            attributes.append(Orange.data.DiscreteVariable(col, values))
+        else:
+            attributes.append(Orange.data.ContinuousVariable(col))
 
-# Make predictions
-y_pred_ripper = ripper_model.predict(X_test)
-y_pred_foil = foil_model.predict(X_test)
+   
+    class_col = df.columns[-1]
+    class_values = list(map(str, df[class_col].unique()))
+    class_var = Orange.data.DiscreteVariable(class_col, class_values)
 
-# Evaluate RIPPER
-print("RIPPER Results:")
-print(classification_report(y_test, y_pred_ripper, target_names=target_names))
+    domain = Orange.data.Domain(attributes, class_var)
 
-# Evaluate FOIL
-print("\nFOIL Results:")
-print(classification_report(y_test, y_pred_foil, target_names=target_names))
+    # Convert all values to strings (because Orange expects matching categories)
+    data_as_str = df.astype(str).values.tolist()
+    table = Orange.data.Table.from_list(domain, data_as_str)
 
-# Simple accuracy comparison
-ripper_acc = (y_pred_ripper == y_test).mean()
-foil_acc = (y_pred_foil == y_test).mean()
+    return table
 
-print(f"RIPPER Accuracy: {ripper_acc:.2f}")
-print(f"FOIL Accuracy: {foil_acc:.2f}")
+
+table = load_dataset(df)
+print("Orange table created successfully!")
+
+def apply_cn2_learner(table):
+    learner = CN2Learner()
+    classifier = learner(table)
+    return classifier
+def apply_foil_like_learner(table):
+    """
+    Apply FOIL-like algorithm (CN2SDUnorderedLearner) for rule learning
+    """
+    learner = CN2SDUnorderedLearner()
+    classifier = learner(table)
+    return classifier
+
+def display_rules(classifier):
+    print("\nLearned Rules:\n")
+    for rule in classifier.rule_list:
+        print(rule)
+
+def main():
+    print("=== CN2 RULES ===")
+    cn2_classifier = apply_cn2_learner(table)
+    display_rules(cn2_classifier)
+
+    print("\n=== FOIL-LIKE RULES ===")
+    foil_classifier = apply_foil_like_learner(table)
+    display_rules(foil_classifier)
+
+if __name__ == "__main__":
+    main()
+
+main()
